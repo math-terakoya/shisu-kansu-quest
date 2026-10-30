@@ -335,6 +335,15 @@ padding: 14px 0; text-shadow: 3px 3px 0 #400; animation: warn 2s forwards;
 sup.ex { font-size: 0.68em; vertical-align: 0.62em; line-height: 0; margin-left: 1px; }   /* 指数 */
 .fr sup.ex { font-size: 0.8em; }
 #defPoints .defr { font-family: 'Times New Roman', 'Hiragino Mincho ProN', serif; font-size: 17px; margin: 2px 0 6px 12px; }
+/* 正解の 大きい まる（ほめる ことばつき）：2026-10-30 「正解かどうかが わかりにくい」→ 正解は 大きく ほめる */
+.maru { position: absolute; left: 50%; top: 46%; width: min(64vw, 290px); aspect-ratio: 1; transform: translate(-50%, -50%); z-index: 45; pointer-events: none;
+  border: 16px solid #ff4646; border-radius: 50%; box-shadow: 0 0 26px rgba(255,70,70,0.75), inset 0 0 26px rgba(255,70,70,0.5);
+  display: flex; align-items: center; justify-content: center; animation: maru 1.15s ease-out forwards; background: radial-gradient(circle, rgba(0,0,0,0.72) 55%, rgba(0,0,0,0.35) 100%); }
+.maru span { color: #fff; font-size: 30px; font-weight: bold; white-space: nowrap; letter-spacing: 2px; text-shadow: 3px 3px 0 #a00000, 0 0 14px #ff5050; }
+.maru.gold { border-color: #ffd84a; box-shadow: 0 0 30px rgba(255,216,74,0.85), inset 0 0 26px rgba(255,216,74,0.55); }
+.maru.gold span { text-shadow: 3px 3px 0 #8a5a00, 0 0 14px #ffd84a; }
+@keyframes maru { 0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; } 22% { transform: translate(-50%, -50%) scale(1.12); opacity: 1; }
+  36% { transform: translate(-50%, -50%) scale(1); } 78% { opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1.04); opacity: 0; } }
 </style>
 </head>
 <body>
@@ -358,7 +367,7 @@ sup.ex { font-size: 0.68em; vertical-align: 0.62em; line-height: 0; margin-left:
     <div class="points">
       <div>・<b>グラフ</b>：(0, 1) を 通る。x ＝ 1 で y ＝ 底</div>
       <div>・<b>増える・減る</b>：底 ＞ 1 → 増える、0 ＜ 底 ＜ 1 → 減る</div>
-      <div>・<b>方程式</b>：底を そろえて 指数どうし</div>
+      <div>・<b>方程式</b>：まず 何に そろえるか（4 と 8 → 2）</div>
     </div>
     <button class="start-btn" id="goBtn">▶ しょうえらびへ</button>
   </div>
@@ -552,15 +561,13 @@ function subRangeOpts(q) {
   if (upper) return [['0 ＜ t ' + op + ' ' + V, []], ['t ' + op + ' ' + V, ['pos']], ['0 ≦ t ' + op + ' ' + V, ['touch']], ['t ' + FLIP[op] + ' ' + V, ['rev']]];
   return [['t ' + op + ' ' + V, []], ['0 ＜ t ' + FLIP[op] + ' ' + V, ['rev']], ['t ' + STRICT[op] + ' ' + V, ['eq']]];
 }
-function rangeOpts(q, list) {   // lo o1 B^x o2 hi → x の 範囲
-  const [b, lo, hi, elo, ehi] = list[q.i], [o1, o2] = q.ops, R = (a, x, y, c) => qs(Q(a)) + ' ' + x + ' x ' + y + ' ' + qs(Q(c));
-  const out = [];
-  if (up(b)) out.push([R(elo, o1, o2, ehi), []]); else out.push([R(ehi, o2, o1, elo), []]);
-  if (!up(b)) out.push([R(elo, o1, o2, ehi), ['rev']]);
-  out.push([lo + ' ' + o1 + ' x ' + o2 + ' ' + hi, ['nobase']]);
-  if (lo === '1' || hi === '1') { const a = up(b) ? [elo, o1, o2, ehi] : [ehi, o2, o1, elo]; out.push([R(a[0] === 0 ? 1 : a[0], a[1], a[2], a[3] === 0 ? 1 : a[3]), ['one']]); }
-  out.push([up(b) ? R(elo, STRICT[o1], STRICT[o2], ehi) : R(ehi, STRICT[o2], STRICT[o1], elo), ['eq']]);
-  return out;
+function rangeAligned(b, ops, x, y) {   // 左右の 数を 底の 累乗に：B^{x} o1 B^{x} o2 B^{y}
+  const T = BS[b].t;
+  return pw(T, qs(Q(x))) + ' ' + ops[0] + ' ' + pw(T, 'x') + ' ' + ops[1] + ' ' + pw(T, qs(Q(y)));
+}
+function eqBase(q) {   // 方程式で そろえる 底
+  if (q.mode === 'eqAlign') return EQ_ALIGN[q.i][2];
+  const [a, , , , p] = EQ_TWO[q.i]; return Math.round(Math.pow(a, 1 / p));
 }
 function cmpOrder(q) {   // 第2章 ナラベル：[文字, 値（指数）] の ならび
   const it = q.it.map(i => ITEMS[q.B][i]);
@@ -610,32 +617,51 @@ function makeOptions(q, rng) {
     const pows = right.filter(x => x.t !== '1'), one = xs[2];
     [[one, ...pows], [...pows, one], [pows[0], one, pows[1]]].forEach(o => add(chain(o), chain(o), ['one0']));
   }
-  // 第3章 方程式
-  if (m === 'eqAlign') {
-    const [a, N, , p, r] = EQ_ALIGN[q.i];
-    add(p + 'x ＝ ' + r, 'a', []); add('x ＋ ' + p + ' ＝ ' + r, 'b', ['mulw']); add('x ＝ ' + r, 'c', ['nobase']); add(a + 'x ＝ ' + N, 'd', ['basecmp']);
+  // 第3章 方程式：x の 値は 聞かない。① 何に そろえる？ → ② そろえた 形は？
+  if ((m === 'eqAlign' || m === 'eqTwo') && q.st !== 2) {
+    const [a, , b] = m === 'eqAlign' ? EQ_ALIGN[q.i] : EQ_TWO[q.i], B = eqBase(q);
+    add(B + ' に そろえる', B, []); add(a + ' に そろえる', a, ['bigbase']); add((m === 'eqAlign' ? EQ_ALIGN[q.i][1] : b) + ' に そろえる', m === 'eqAlign' ? EQ_ALIGN[q.i][1] : b, ['bigbase']);
   }
-  if (m === 'eqFrac') { const [, rhs, x] = EQ_FRAC[q.i]; add('x ＝ ' + qs(Q(x)), 'a', []); add('x ＝ ' + qs(Q(-x)), 'b', ['inv']); add('x ＝ ' + rhs, 'c', ['nobase']); }
-  if (m === 'eqRoot') {
-    const [, , k, n, s] = EQ_ROOT[q.i], X = v => 'x ＝ ' + qs(v);
-    add(X(Q(s * k, n)), 'a', []); add(X(Q(s * n, k)), 'b', ['flip']); add(X(Q(-s * k, n)), 'c', ['inv']); if (k >= 2) add(X(Q(s, n)), 'd', ['inner']);
+  if (m === 'eqAlign' && q.st === 2) {
+    const [, , B, p, r] = EQ_ALIGN[q.i], E = (l, rr) => pw(B, l) + ' ＝ ' + pw(B, rr);
+    add(E(p + 'x', r), 'a', []); add(E('x ＋ ' + p, r), 'b', ['mulw']); add(E('x', r), 'c', ['lost']); add(E(r + 'x', p), 'd', ['swapE']);
   }
-  if (m === 'eqTwo') {
-    const [a, e1, b, e2, p, r] = EQ_TWO[q.i];
+  if (m === 'eqTwo' && q.st === 2) {
+    const [, e1, , e2, p, r] = EQ_TWO[q.i], B = eqBase(q), E = (l, rr) => pw(B, l) + ' ＝ ' + pw(B, rr);
     const mk = (cf, e, dist) => (e === 'x' ? cf + 'x' : dist ? cf + e : cf + '(' + e + ')');
-    add(mk(p, e1) + ' ＝ ' + mk(r, e2), 'a', []); add(mk(p, e1, true) + ' ＝ ' + mk(r, e2, true), 'b', ['dist']);
-    add(e1 + ' ＝ ' + mk(r, e2), 'c', ['nobase']); add(mk(a, e1) + ' ＝ ' + mk(b, e2), 'd', ['basecmp']);
+    add(E(mk(p, e1), mk(r, e2)), 'a', []); add(E(mk(p, e1, true), mk(r, e2, true)), 'b', ['dist']);
+    add(E(e1, mk(r, e2)), 'c', ['lost']); add(E(e1 + ' ＋ ' + p, e2 + ' ＋ ' + r), 'd', ['mulw']);
+  }
+  if (m === 'eqFrac') { const [b, rhs, x] = EQ_FRAC[q.i], E = rr => pw(b, 'x') + ' ＝ ' + pw(b, rr); add(E(qs(Q(x))), 'a', []); add(E(qs(Q(-x))), 'b', ['inv']); add(E(rhs), 'c', ['asexp']); }
+  if (m === 'eqRoot') {
+    const [b, , k, n, s] = EQ_ROOT[q.i], E = v => pw(b, 'x') + ' ＝ ' + pw(b, qs(v));
+    add(E(Q(s * k, n)), 'a', []); add(E(Q(s * n, k)), 'b', ['flip']); add(E(Q(-s * k, n)), 'c', ['inv']); if (k >= 2) add(E(Q(s, n)), 'd', ['inner']);
   }
   // 第4章 不等式
   if (m === 'ineqDir') {
     const k = qs(q.k), op = up(q.b) ? q.op : FLIP[q.op];
     add('x ' + op + ' ' + k, 'a', []); add('x ' + FLIP[op] + ' ' + k, 'b', ['rev']); add('x ' + STRICT[op] + ' ' + k, 'c', ['eq']); add('x ' + STRICT[FLIP[op]] + ' ' + k, 'd', ['rev', 'eq']);
   }
-  if (m === 'ineqAlign') {
-    const [b, , e] = IN_ALIGN[q.i], op = up(b) ? q.op : FLIP[q.op];
-    add('x ' + op + ' ' + qs(Q(e)), 'a', []); add('x ' + FLIP[op] + ' ' + qs(Q(e)), 'b', ['rev']); add('x ' + op + ' ' + qs(Q(-e)), 'c', ['inv']); add('x ' + FLIP[op] + ' ' + qs(Q(-e)), 'd', ['rev', 'inv']);
+  if (m === 'ineqAlign' && q.st !== 2) {   // ① そろえた 形
+    const [b, rhs, e] = IN_ALIGN[q.i], T = BS[b].t, A = rr => pw(T, 'x') + ' ' + q.op + ' ' + pw(T, rr);
+    add(A(qs(Q(e))), 'a', []); add(A(qs(Q(-e))), 'b', ['inv']); add(A(rhs), 'c', ['asexp']);
   }
-  if (m === 'ineqRange' || m === 'ineqHalf') rangeOpts(q, m === 'ineqRange' ? IN_RANGE : IN_HALF).forEach(([t, ty]) => add(t, t, ty));
+  if (m === 'ineqAlign' && q.st === 2) {   // ② 向き
+    const [b, , e] = IN_ALIGN[q.i], op = up(b) ? q.op : FLIP[q.op];
+    add('x ' + op + ' ' + qs(Q(e)), 'a', []); add('x ' + FLIP[op] + ' ' + qs(Q(e)), 'b', ['rev']); add('x ' + STRICT[op] + ' ' + qs(Q(e)), 'c', ['eq']); add('x ' + STRICT[FLIP[op]] + ' ' + qs(Q(e)), 'd', ['rev', 'eq']);
+  }
+  if ((m === 'ineqRange' || m === 'ineqHalf') && q.st !== 2) {   // ① そろえた 形
+    const [b, lo, hi, elo, ehi] = (m === 'ineqRange' ? IN_RANGE : IN_HALF)[q.i], A = (x, y) => rangeAligned(b, q.ops, x, y);
+    add(A(elo, ehi), A(elo, ehi), []);
+    if (lo === '1' || hi === '1') add(A(elo === 0 ? 1 : elo, ehi === 0 ? 1 : ehi), 'one', ['one0']);
+    add(A(-elo, -ehi), 'inv', ['inv']); add(A(ehi, elo), 'sw', ['swap2']);
+  }
+  if ((m === 'ineqRange' || m === 'ineqHalf') && q.st === 2) {   // ② 向き
+    const [b, , , elo, ehi] = (m === 'ineqRange' ? IN_RANGE : IN_HALF)[q.i], [o1, o2] = q.ops, R = (a, x, y, c) => qs(Q(a)) + ' ' + x + ' x ' + y + ' ' + qs(Q(c));
+    const keep = R(elo, o1, o2, ehi), turn = R(ehi, o2, o1, elo), keepE = R(elo, STRICT[o1], STRICT[o2], ehi), turnE = R(ehi, STRICT[o2], STRICT[o1], elo);
+    const [ok, ng, okE, ngE] = up(b) ? [keep, turn, keepE, turnE] : [turn, keep, turnE, keepE];
+    add(ok, 'a', []); add(ng, 'b', ['rev']); add(okE, 'c', ['eq']); add(ngE, 'd', ['rev', 'eq']);
+  }
   // 第5章 置きかえ
   if (m === 'subT') {
     const B = q.B, P = q.kind === 'plus' ? -Math.pow(B, q.k) : q.p, tail = term(q.c, '', false) + ' ＝ 0';
@@ -680,12 +706,23 @@ function texts(q) {
     const t = BS[q.b].t, xs = [pw(t, qs(q.e[0])), pw(t, qs(q.e[1])), '1'], e = q.ord.map(i => xs[i]).join('、');
     return [['▼ 大きい 順は？', e + ' を 大きい 順に'], ['次の 数を 大きい 順に ならべよ。　' + e], e];
   }
-  if (m === 'eqAlign') { const [a, N] = EQ_ALIGN[q.i], e = pw(a, 'x') + ' ＝ ' + N; return [['▼ 指数の 式は？', e + '。指数の 式は？'], ['方程式 ' + e + ' を 解け。底を そろえた あとの 指数の 式は？'], e]; }
-  if (m === 'eqFrac' || m === 'eqRoot') { const [b, rhs] = (m === 'eqFrac' ? EQ_FRAC : EQ_ROOT)[q.i], e = pw(b, 'x') + ' ＝ ' + rhs; return [['▼ x は？', e + '。x は？'], ['方程式 ' + e + ' を 解け。'], e]; }
-  if (m === 'eqTwo') { const [a, e1, b, e2] = EQ_TWO[q.i], e = pw(a, e1) + ' ＝ ' + pw(b, e2); return [['▼ 指数の 式は？', e + '。指数の 式は？'], ['方程式 ' + e + ' を 解け。底を そろえた あとの 指数の 式は？'], e]; }
+  if (m === 'eqAlign' || m === 'eqTwo') {
+    const e = m === 'eqAlign' ? pw(EQ_ALIGN[q.i][0], 'x') + ' ＝ ' + EQ_ALIGN[q.i][1] : pw(EQ_TWO[q.i][0], EQ_TWO[q.i][1]) + ' ＝ ' + pw(EQ_TWO[q.i][2], EQ_TWO[q.i][3]), B = eqBase(q);
+    if (q.st !== 2) return [['▼ ① 何に そろえる？', e + '。底を 何に そろえる？'], ['方程式 ' + e + ' を 解け。まず 両辺の 底を 何に そろえるか。'], e];
+    return [['▼ ② そろえた 形は？', e + '。' + B + ' に そろえると？'], ['方程式 ' + e + ' の 両辺の 底を ' + B + ' に そろえた 式を 選べ。'], e];
+  }
+  if (m === 'eqFrac' || m === 'eqRoot') { const [b, rhs] = (m === 'eqFrac' ? EQ_FRAC : EQ_ROOT)[q.i], e = pw(b, 'x') + ' ＝ ' + rhs; return [['▼ そろえた 形は？', e + '。右辺も ' + b + ' の 累乗に すると？'], ['方程式 ' + e + ' を 解く。両辺の 底を そろえた 式を 選べ。'], e]; }
   if (m === 'ineqDir') { const t = BS[q.b].t, e = pw(t, 'x') + ' ' + q.op + ' ' + pw(t, qs(q.k)); return [['▼ 向きは？', e + '。x の 範囲は？'], ['不等式 ' + e + ' を 解け。'], e]; }
-  if (m === 'ineqAlign') { const [b, rhs] = IN_ALIGN[q.i], e = pw(BS[b].t, 'x') + ' ' + q.op + ' ' + rhs; return [['▼ そろえて 向きは？', e + '。x の 範囲は？'], ['不等式 ' + e + ' を 解け。'], e]; }
-  if (m === 'ineqRange' || m === 'ineqHalf') { const [b, lo, hi] = (m === 'ineqRange' ? IN_RANGE : IN_HALF)[q.i], e = lo + ' ' + q.ops[0] + ' ' + pw(BS[b].t, 'x') + ' ' + q.ops[1] + ' ' + hi; return [['▼ はさまれた 不等式', e + '。x の 範囲は？'], ['不等式 ' + e + ' を 解け。'], e]; }
+  if (m === 'ineqAlign') {
+    const [b, rhs, ee] = IN_ALIGN[q.i], T = BS[b].t, e = pw(T, 'x') + ' ' + q.op + ' ' + rhs, A = pw(T, 'x') + ' ' + q.op + ' ' + pw(T, qs(Q(ee)));
+    if (q.st !== 2) return [['▼ ① そろえた 形は？', e + '。右辺も そろえると？'], ['不等式 ' + e + ' を 解け。まず 両辺の 底を そろえよ。'], e];
+    return [['▼ ② 向きは？', A + '。x の 範囲は？'], ['不等式 ' + A + ' から、x の 範囲を 求めよ。'], A];
+  }
+  if (m === 'ineqRange' || m === 'ineqHalf') {
+    const [b, lo, hi, elo, ehi] = (m === 'ineqRange' ? IN_RANGE : IN_HALF)[q.i], e = lo + ' ' + q.ops[0] + ' ' + pw(BS[b].t, 'x') + ' ' + q.ops[1] + ' ' + hi, A = rangeAligned(b, q.ops, elo, ehi);
+    if (q.st !== 2) return [['▼ ① そろえた 形は？', e + '。左右の 数も そろえると？'], ['不等式 ' + e + ' を 解け。まず 左右の 数を 底の 累乗に そろえよ。'], e];
+    return [['▼ ② 向きは？', A + '。x の 範囲は？'], ['不等式 ' + A + ' から、x の 範囲を 求めよ。'], A];
+  }
   if (m === 'subT') {
     const B = q.B, mid = q.kind === 'plus' ? ' − ' + pw(B, 'x ＋ ' + q.k) : ' ' + (q.p < 0 ? '−' : '＋') + ' ' + (Math.abs(q.p) === 1 ? '' : Math.abs(q.p) + '·') + pw(B, 'x');
     const e = pw(B * B, 'x') + mid + term(q.c, '', false) + ' ＝ 0';
@@ -720,15 +757,18 @@ function reasonLines(q) {
     else { add('底 ' + q.B + ' ＞ 1 → 指数が 大きい 方が 大きい'); add('指数の 大きい 順：' + ord(xs, x => x.e, true).map(x => qs(x.e)).join(' ＞ ')); }
   }
   if (m === 'cmpRev') { add('1 ＝ ' + pw(BS[q.b].t, 0) + '（指数 0 で ならべる）'); add('0 ＜ 底 ＜ 1 → 指数が 小さい ほど 大きい'); }
-  if (m === 'eqAlign') { const [a, N, B, p, r] = EQ_ALIGN[q.i]; add('底を ' + B + ' に そろえる：' + a + ' ＝ ' + pw(B, p) + '、' + N + ' ＝ ' + pw(B, r)); add('(' + pw(B, p) + ')^{x} ＝ ' + pw(B, p + 'x') + '（( )の セット乗 → 指数は かける）→ ' + p + 'x ＝ ' + r); }
-  if (m === 'eqFrac') { const [b, rhs, x] = EQ_FRAC[q.i]; add('右辺も 底 ' + b + ' の 累乗に：' + rhs + ' ＝ ' + pw(b, qs(Q(x)))); add('逆数は マイナス乗 → x ＝ ' + qs(Q(x))); }
+  if (m === 'eqAlign' || m === 'eqTwo') {
+    const B = eqBase(q), [a, p, b, r] = m === 'eqAlign' ? [EQ_ALIGN[q.i][0], EQ_ALIGN[q.i][3], EQ_ALIGN[q.i][1], EQ_ALIGN[q.i][4]] : [EQ_TWO[q.i][0], EQ_TWO[q.i][4], EQ_TWO[q.i][2], EQ_TWO[q.i][5]];
+    if (q.st !== 2) { add(a + ' ＝ ' + pw(B, p) + '、' + b + ' ＝ ' + pw(B, r) + ' → どちらも ' + B + ' の 累乗'); add('→ 底を ' + B + ' に そろえる'); }
+    else { add('(' + pw(B, p) + ')^{x} ＝ ' + pw(B, p + 'x') + '：( )の セット乗 → 指数は かける' + (m === 'eqTwo' ? '（指数の 式 全体に かける）' : '')); add('そろえたら、あとは 指数どうしの 式'); }
+  }
+  if (m === 'eqFrac') { const [b, rhs, x] = EQ_FRAC[q.i]; add('右辺も 底 ' + b + ' の 累乗に：' + rhs + ' ＝ ' + pw(b, qs(Q(x)))); add('逆数は マイナス乗：' + fr(1, pw('a', 'n')) + ' ＝ ' + pw('a', '−n')); }
   if (m === 'eqRoot') { const [b, rhs, k, n, s] = EQ_ROOT[q.i]; add('累乗根は 指数に：' + rhs + ' ＝ ' + pw(b, qs(Q(s * k, n)))); add('中の 指数が 分子、左上の 数が 分母（逆数なら マイナス）'); }
-  if (m === 'eqTwo') { const [a, e1, b, e2, p, r] = EQ_TWO[q.i], B = Math.round(Math.pow(a, 1 / p)); add('底を ' + B + ' に そろえる：' + a + ' ＝ ' + pw(B, p) + '、' + b + ' ＝ ' + pw(B, r)); add('( )の セット乗 → 指数は かける。指数の 式全体に かける（かっこを つける）'); }
   if (m === 'ineqDir' || m === 'ineqAlign' || m === 'ineqRange' || m === 'ineqHalf') {
     const b = m === 'ineqDir' ? q.b : (m === 'ineqAlign' ? IN_ALIGN : m === 'ineqRange' ? IN_RANGE : IN_HALF)[q.i][0];
-    if (m === 'ineqAlign') { const [, rhs, e] = IN_ALIGN[q.i]; add('右辺も そろえる：' + rhs + ' ＝ ' + pw(BS[b].t, qs(Q(e)))); }
-    if (m === 'ineqRange' || m === 'ineqHalf') { const [, lo, hi, elo, ehi] = (m === 'ineqRange' ? IN_RANGE : IN_HALF)[q.i]; add('左右の 数を 底の 累乗に：' + lo + ' ＝ ' + pw(BS[b].t, qs(Q(elo))) + '、' + hi + ' ＝ ' + pw(BS[b].t, qs(Q(ehi)))); }
-    add(up(b) ? '底 ＞ 1 → 不等号の 向きは そのまま' : '0 ＜ 底 ＜ 1 → 不等号の 向きが 逆');
+    if (m === 'ineqAlign' && q.st !== 2) { const [, rhs, e] = IN_ALIGN[q.i]; add('右辺も 底 ' + BS[b].t + ' の 累乗に：' + rhs + ' ＝ ' + pw(BS[b].t, qs(Q(e)))); }
+    if ((m === 'ineqRange' || m === 'ineqHalf') && q.st !== 2) { const [, lo, hi, elo, ehi] = (m === 'ineqRange' ? IN_RANGE : IN_HALF)[q.i]; add('左右の 数を 底の 累乗に：' + lo + ' ＝ ' + pw(BS[b].t, qs(Q(elo))) + '、' + hi + ' ＝ ' + pw(BS[b].t, qs(Q(ehi)))); }
+    if (m === 'ineqDir' || q.st === 2) add(up(b) ? '底 ＞ 1 → 不等号の 向きは そのまま' : '0 ＜ 底 ＜ 1 → 不等号の 向きが 逆');
   }
   if (m === 'subT') { const B = q.B; add(pw(B * B, 'x') + ' ＝ (' + pw(B, 2) + ')^{x} ＝ (' + pw(B, 'x') + ')^{2} ＝ t²'); if (q.kind === 'plus') add(pw(B, 'x ＋ ' + q.k) + ' ＝ ' + pw(B, 'x') + ' × ' + pw(B, q.k) + ' ＝ ' + Math.pow(B, q.k) + 't'); }
   if (m === 'subRange') { add('t ＝ ' + pw('a', 'x') + ' は いつも 正 → t ＞ 0'); if (q.c) add(up(q.b) ? '底 ＞ 1 → x の 不等号の 向きの まま' : '0 ＜ 底 ＜ 1 → x の 不等号と 向きが 逆'); }
@@ -767,7 +807,7 @@ const MONSTERS = [
   ['cmpTwo', 'クラベル', '⚖️', '底 ＞ 1 → 指数が 大きい 方が 大きい（底 ＜ 1 は 逆）'],
   ['cmpAlign', 'ナラベル', '📊', '底を そろえて 指数で ならべる'],
   ['cmpRev', 'サカサマ', '🔃', '1 ＝ a^{0}。底 ＜ 1 は 指数が 小さい ほど 大きい'],
-  ['eqAlign', 'ソコソロエ', '🧩', '4^{x} ＝ 8 → 2^{2x} ＝ 2^{3} → 2x ＝ 3'],
+  ['eqAlign', 'ソコソロエ', '🧩', '4 と 8 は どちらも 2 の 累乗 → 2 に そろえる：2^{2x} ＝ 2^{3}'],
   ['eqFrac', 'ギャクスウ', '🙃', '{1|8} ＝ 2^{−3}（逆数は マイナス乗）'],
   ['eqRoot', 'ルートシキ', '🌱', '√[3]{4} ＝ 2^{{2|3}}（累乗根は 指数に）'],
   ['ineqDir', 'ムキカエ', '🔄', '底 ＜ 1 → 不等号の 向きが 逆'],
@@ -832,7 +872,7 @@ const GEN = {
 };
 function genPrm(form, rng) { const r = GEN[form](rng); return Object.assign({ mode: form }, r, { f: form, mode: r.mode || form }); }
 
-const STEPS = ['cmpAlign'];
+const STEPS = ['cmpAlign', 'eqAlign', 'eqTwo', 'ineqAlign', 'ineqRange', 'ineqHalf'];
 function build(prm, rng, opt = {}) {
   const q = prm, form = q.f || q.mode, lv = FORM_LV[form];
   const p = { lv, kind: 'fwd', prm, mode: q.mode, form };
@@ -851,7 +891,7 @@ function build(prm, rng, opt = {}) {
   }
   p.reason = reasonLines(q);
   if (p.exam) p.reason.push('この 問題は 第' + lv + '章の「' + p.shortText + '」と おなじ');
-  if (STEPS.includes(q.mode)) {   // 連れ問：① 底を そろえると 指数は？ → ② 大きい 順は？
+  if (STEPS.includes(q.mode)) {   // 連れ問：ナラベル（① そろえた 指数 → ② 大きい 順）、方程式（① 何に そろえる → ② そろえた 形）、不等式（① そろえた 形 → ② 向き）
     const q2 = Object.assign({}, q, { st: 2 }), [s2, e2, x2] = texts(q2);
     p.steps = [
       { label: opt.boss ? '▼ 問題集の ことばで（①）' : p.label, display: p.display, options: p.options, reason: p.reason, expr },
@@ -869,15 +909,15 @@ const TYPE_TEXT = {
   touch: 'x軸に 近づくが つかない → 0 は 入らない', all: 'a^{x} は いつも 正', one: '0 より 大きい（1 より 小さい 値も とる）',
   swap: 'x と y が 逆（x ＝ 0 → y ＝ 1）', zero: 'a^{0} ＝ 1（0 では ない）', one1: '(1, 1) を 通るのは a ＝ 1 の とき だけ',
   big: '大小が 逆（底 ＞ 1 → 指数が 大きい 方が 大きい、0 ＜ 底 ＜ 1 → 逆）', same: '指数が ちがう → 同じでは ない', exp: '指数を そろえて（2^{30} ＝ 8^{10}）底で くらべる',
-  flip: '分母と 分子が 逆（中の 指数が 分子、左上の 数が 分母）', nobase: '底を そろえて いない', order: 'ならべ方が ちがう（底 ＞ 1 → 指数の 大きい 順）', one0: '1 ＝ a^{0}：指数 0 と して ならべる',
-  mulw: '( )の セット乗 → 指数は かける', basecmp: '底どうしを くらべない（底を そろえて 指数どうし）', inv: 'マイナスが ちがう（逆数は マイナス乗）', inner: '根号の 中の 指数を わすれた', dist: 'かっこを わすれた（指数 全体に かける）',
+  flip: '分母と 分子が 逆（中の 指数が 分子、左上の 数が 分母）', nobase: '底を そろえて いない', order: 'ならべ方が ちがう（底 ＞ 1 → 指数の 大きい 順）', one0: '1 ＝ a^{0}（指数は 0）',
+  mulw: '( )の セット乗 → 指数は かける', bigbase: '両方を 同じ 底の 累乗に できる 数に そろえる（4 ＝ 2^{2}、8 ＝ 2^{3} → 2）', lost: '( )の セット乗の 指数を わすれた（(2^{2})^{x} ＝ 2^{2x}）', swapE: '指数の 置き場所が 逆', asexp: '数を そのまま 指数に しない（8 ＝ 2^{3}）', swap2: '左右の 数の 指数が 入れかわって いる', inv: 'マイナスが ちがう（逆数は マイナス乗）', inner: '根号の 中の 指数を わすれた', dist: 'かっこを わすれた（指数 全体に かける）',
   rev: '不等号の 向きが ちがう（底 ＞ 1 → そのまま、0 ＜ 底 ＜ 1 → 逆）', eq: '等号（＝）の つけ方が ちがう',
   sq: '(2^{x})^{2} ＝ t²（2t では ない）', four: '4^{x} ＝ (2^{x})^{2} ＝ t²（4t では ない）', plus1: '2^{x ＋ 1} ＝ 2^{x} × 2 ＝ 2t（たし算に しない）',
   pos: 't ＝ a^{x} ＞ 0 を わすれた', neg: 't ＞ 0 → 負の t は すてる', pick: 't ＞ 0 → 正の 方を 使う', zero0: 't ＞ 0 は いつも 成り立つ（x ＞ 0 では ない）', back: 't を x に もどして いない',
   scatter: 'えらびかたが ばらばら',
 };
 const MASTER_TEXT = { dir: '増える・減る', pt1: 'x ＝ 1 の 点', flat: '増える・減る', touch: 'x軸に つかない', all: 'いつも 正', one: '値の 範囲', swap: '(0, 1)', zero: 'a の 0乗', one1: '(0, 1)',
-  big: '大小の 向き', same: '大小', exp: '指数を そろえる', flip: '分母と 分子', nobase: '底を そろえる', order: 'ならべ方', one0: '1 ＝ a の 0乗', mulw: 'セット乗', basecmp: '指数どうし', inv: 'マイナス乗', inner: '中の 指数', dist: 'かっこ',
+  big: '大小の 向き', same: '大小', exp: '指数を そろえる', flip: '分母と 分子', nobase: '底を そろえる', order: 'ならべ方', one0: '1 ＝ a の 0乗', mulw: 'セット乗', bigbase: 'そろえる 底', lost: 'セット乗', swapE: '指数の 置き場所', asexp: '数を 累乗に', swap2: '左右の 指数', inv: 'マイナス乗', inner: '中の 指数', dist: 'かっこ',
   rev: '不等号の 向き', eq: '等号', sq: 't²', four: 't²', plus1: '2t', pos: 't ＞ 0', neg: 't ＞ 0', pick: 't ＞ 0', zero0: 't ＞ 0', back: 'x に もどす' };
 function describe(p, cls) { return cls.types.map(t => TYPE_TEXT[t]).join('、'); }
 function masterText(t) { return MASTER_TEXT[t]; }
@@ -891,9 +931,8 @@ function likeOK(q, w, types) {
     if (['rev', 'dir', 'big'].includes(t) && baseOf(q) && up(baseOf(q)) !== up(baseOf(w))) return false;
     if (t === 'dir' && q.mode === 'gInc' && INC[q.i][1] !== INC[w.i][1]) return false;
     if (t === 'inner' && q.mode === 'eqRoot' && EQ_ROOT[q.i][2] < 2) return false;
-    if (t === 'one' && (q.mode === 'ineqRange') && !(IN_RANGE[q.i][1] === '1' || IN_RANGE[q.i][2] === '1')) return false;
+    if (t === 'one0' && (q.mode === 'ineqRange') && !(IN_RANGE[q.i][1] === '1' || IN_RANGE[q.i][2] === '1')) return false;
     if (['pos', 'touch', 'rev', 'eq'].includes(t) && q.mode === 'subRange' && !subRangeOpts(q).some(([, ty]) => ty.includes(t))) return false;
-    if (t === 'rev' && (q.mode === 'ineqRange') && up(IN_RANGE[q.i][0])) return false;
     if (t === 'back' && q.mode === 'subIneq' && SUB_INEQ[q.i][1] === logInt(SUB_INEQ[q.i][0], SUB_INEQ[q.i][1])) return false;
   }
   return true;
@@ -1264,6 +1303,12 @@ function showDamage(text, color) {
   el.style.left = (r.left - g.left + r.width / 2 - 16) + 'px'; el.style.top = (r.top - g.top) + 'px';
   gameEl.appendChild(el); setTimeout(() => el.remove(), 1000);
 }
+const HOME = ['すごい！', 'その とおり！', 'ナイス！', 'さすが！', 'みきわめた！', 'かんぺき！', 'いいね！'];
+function showMaru(text, gold) {   // 正解の 大きい まる
+  const el = document.createElement('div'); el.className = 'maru' + (gold ? ' gold' : '');
+  const s = document.createElement('span'); s.textContent = text || HOME[Math.floor(Math.random() * HOME.length)]; el.appendChild(s);
+  gameEl.appendChild(el); setTimeout(() => el.remove(), 1150);
+}
 function showLevelUp() { const el = document.createElement('div'); el.className = 'level-up'; el.textContent = 'LEVEL UP!'; gameEl.appendChild(el); setTimeout(() => el.remove(), 1800); }
 
 // ---------- 進行 ----------
@@ -1301,7 +1346,7 @@ function stepOne(ok, cls) {
   const q = p();
   state.reveal = true;
   if (ok) {
-    state.phase = 'busy'; draw(); renderControls(); flashScreen();
+    state.phase = 'busy'; draw(); renderControls(); flashScreen(); showMaru('① せいかい！');
     setMessage('① せいかい！　' + (q.ex ? q.ex + ' は きいろの ところ' : 'つぎは ②'));
     setTimeout(() => goStep2('つぎは ②'), 900);
     return;
@@ -1369,7 +1414,7 @@ function onCorrect(ev) {
   if (stay) lines.push(e.name + '「にがてを こくふく するまで たおれぬ！」');
   if (state.hp <= 0) zkEvent(boss ? { type: 'boss', id: bossId(), noMiss: !state.bossMiss } : q.mab ? { type: 'boss', id: q.form, noMiss: !state.mabMiss } : { type: 'kill', id: q.form }, lines);   // まぼろしの ◎ は ノーミス
   setMessage(lines.join('\n'));
-  if (hit.crit) { const el = document.createElement('div'); el.className = 'level-up crit'; el.textContent = 'かいしんの いちげき！'; gameEl.appendChild(el); setTimeout(() => el.remove(), 1500); }
+  showMaru(hit.crit ? 'かいしん！' : !state.hintUsed && state.combo >= 3 ? state.combo + ' れんぞく！' : '', hit.crit);   // 正解は 大きい まるで ほめる（かいしんは 金）
   const wait = (hit.crit ? 1500 : 1000) + (lines.some(l => l.startsWith('📖')) ? 400 : 0);
   setTimeout(() => {
     if (!stay) state.slotIdx += 1;
@@ -1521,7 +1566,7 @@ function next() { if (state.phase !== 'next' || !state.onNext) return; const cb 
 const TUT = [
   { prm: { mode: 'gCurve', b: '2' }, msg: '【れんしゅう 1/3】y ＝ 2^{x} は (0, 1) と (1, 2) を 通る、右上がりの 曲線。\n光って いる 曲線を タップしよう', wrongOpt: '(1, 2) を 通る 右上がりの 曲線 だよ' },
   { prm: { mode: 'gInc', i: 1 }, msg: '【れんしゅう 2/3】底 {1|3} は 1 より 小さい → 右下がり。\n「x が 増えると y は 減る」を えらぼう', wrongOpt: '底が 1 より 小さい → 減る だよ' },
-  { prm: { mode: 'eqAlign', i: 0 }, msg: '【れんしゅう 3/3】4 ＝ 2^{2}、8 ＝ 2^{3} → 2^{2x} ＝ 2^{3}。指数どうしで 2x ＝ 3。\n「2x ＝ 3」を えらぼう', wrongOpt: '底を 2 に そろえると 2^{2x} ＝ 2^{3} → 2x ＝ 3 だよ' },
+  { prm: { mode: 'eqAlign', i: 0 }, msg: '【れんしゅう 3/3】4^{x} ＝ 8。4 ＝ 2^{2}、8 ＝ 2^{3} → どちらも 2 の 累乗。\n「2 に そろえる」を えらぼう', wrongOpt: '4 も 8 も 2 の 累乗 → 2 に そろえる だよ' },
 ];
 function tutDone() { try { return localStorage.getItem(TUT_KEY) === '1'; } catch (e) { return false; } }
 let pulseId = null;
@@ -1575,7 +1620,7 @@ function tutDecide() {
   const last = state.tut.i === TUT.length - 1;
   pulse(null);
   state.reveal = true; state.phase = 'next';
-  renderControls(); draw(); flashScreen(); monsterAnim('hit');
+  renderControls(); draw(); flashScreen(); monsterAnim('hit'); showMaru();
   setMessage('せいかい！\n' + (last ? 'これで れんしゅうは おしまい' : 'つぎの れんしゅうへ'));
   state.onNext = last ? () => { state.phase = 'idle'; $('tutDoneScreen').classList.remove('hidden'); } : () => { state.tut.i += 1; tutProblem(); };
 }
